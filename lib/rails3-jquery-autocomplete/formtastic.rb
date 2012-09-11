@@ -14,6 +14,16 @@ begin
     #
 
     module Formtastic
+
+      class FormBuilder
+        def autocompleted_input(*args)
+          options = args.extract_options!
+          input(*args << options.reverse_merge(:as => :autocomplete))
+        end
+
+        alias_method :autocomplete_input, :autocompleted_input
+      end
+
       module Inputs
         class AutocompleteInput
           include Base
