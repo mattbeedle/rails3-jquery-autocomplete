@@ -41,23 +41,26 @@ module Rails3JQueryAutocomplete
     # end
     #
     module ClassMethods
-      def autocomplete(object, method, options = {})
-        define_method("autocomplete_#{object}_#{method}") do
+      def autocomplete(*args)
+        options = args.extract_options!
+        object = args.shift
+        columns = args
 
-          method = options[:column_name] if options.has_key?(:column_name)
+        action = options[:action] || "#{object}_#{columns.first}"
 
+        define_method("autocomplete_#{action}") do
           term = params[:term]
 
           if term && !term.blank?
-            #allow specifying fully qualified class name for model object
-            class_name = options[:class_name] || object
-            items = get_autocomplete_items(:model => get_object(class_name), \
-              :options => options, :term => term, :method => method)
+            items = get_autocomplete_items(relation: get_relation(options), \
+              options: options, term: term, columns: columns)
           else
             items = {}
           end
 
-          render :json => json_for_autocomplete(items, options[:display_value] ||= method, options[:extra_data])
+          value = options[:display_value] || columns.first
+
+          render json: json_for_autocomplete(items, columns, value, options[:extra_data])
         end
       end
     end
@@ -67,13 +70,19 @@ module Rails3JQueryAutocomplete
       options[:limit] ||= 10
     end
 
-    # Returns parameter model_sym as a constant
-    #
-    #   get_object(:actor)
-    #   # returns a Actor constant supposing it is already defined
-    #
-    def get_object(model_sym)
-      object = model_sym.to_s.camelize.constantize
+    def get_relation(options)
+      return options[:class_name].to_s.camelize.constantize if options[:class_name]
+      return options[:class] if options[:class]
+
+      relation = options[:relation]
+
+      if relation.is_a?(Proc) or relation.is_a?(Symbol)
+        return relation.to_proc.call(self)
+      elsif relation
+        return relation
+      else
+        raise 'Need to provide :relation, :class_name or :class options'
+      end
     end
 
     #
@@ -81,13 +90,10 @@ module Rails3JQueryAutocomplete
     # Can be overriden to show whatever you like
     # Hash also includes a key/value pair for each method in extra_data
     #
-    def json_for_autocomplete(items, method, extra_data=[])
-      items.collect do |item|
-        hash = {"id" => item.id.to_s, "label" => item.send(method), "value" => item.send(method)}
-        extra_data.each do |datum|
-          hash[datum] = item.send(datum)
-        end if extra_data
-        # TODO: Come back to remove this if clause when test suite is better
+    def json_for_autocomplete(items, columns, value, extra_data)
+      items.map do |item|
+        hash = { "id" => item.id.to_s, "label" => item.send(value), "value" => item.send(value) }
+        (columns + Array.wrap(extra_data)).each{ |datum| hash[datum] = item.send(datum) }
         hash
       end
     end
