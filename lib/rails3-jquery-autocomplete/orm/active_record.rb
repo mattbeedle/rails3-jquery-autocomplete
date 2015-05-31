@@ -9,38 +9,41 @@ module Rails3JQueryAutocomplete
       end
 
       def get_autocomplete_items(parameters)
-        model   = parameters[:model]
-        term    = parameters[:term]
-        method  = parameters[:method]
-        options = parameters[:options]
-        scopes  = Array(options[:scopes])
-        where   = options[:where]
-        limit   = get_autocomplete_limit(options)
-        order   = get_autocomplete_order(method, options, model)
+        relation  = parameters[:relation]
+        term      = parameters[:term]
+        columns   = parameters[:columns]
+        options   = parameters[:options]
+        scopes    = Array(options[:scopes])
+        where     = options[:where]
+        limit     = get_autocomplete_limit(options)
+        order     = get_autocomplete_order(columns.first, options, relation)
 
 
-        items = model.scoped
+        items = relation.scoped
 
         scopes.each { |scope| items = items.send(scope) } unless scopes.empty?
 
-        items = items.select(get_autocomplete_select_clause(model, method, options)) unless options[:full_model]
-        items = items.where(get_autocomplete_where_clause(model, term, method, options)).
-            limit(limit).order(order)
+        items = items.select(get_autocomplete_select_clause(relation, columns, options)) unless options[:full_model]
+        items = items.where(get_autocomplete_where_clause(relation, term, columns, options))
+        items = items.limit(limit).order(order)
         items = items.where(where) unless where.blank?
 
         items
       end
 
-      def get_autocomplete_select_clause(model, method, options)
+      def get_autocomplete_select_clause(model, columns, options)
         table_name = model.table_name
-        (["#{table_name}.#{model.primary_key}", "#{table_name}.#{method}"] + (options[:extra_data].blank? ? [] : options[:extra_data]))
+        columns += [model.primary_key]
+        columns += Array.wrap(options[:extra_data])
+        columns.map{ |column_name| "#{table_name}.#{column_name}" }
       end
 
-      def get_autocomplete_where_clause(model, term, method, options)
+      def get_autocomplete_where_clause(model, term, columns, options)
         table_name = model.table_name
         is_full_search = options[:full]
         like_clause = (postgres?(model) ? 'ILIKE' : 'LIKE')
-        ["LOWER(#{table_name}.#{method}) #{like_clause} ?", "#{(is_full_search ? '%' : '')}#{term.downcase}%"]
+        sql = columns.map{ |column_name| "LOWER(#{table_name}.#{column_name}) #{like_clause} :search" }.join(' OR ')
+        [sql, search: "#{(is_full_search ? '%' : '')}#{term.downcase}%"]
       end
 
       def postgres?(model)
